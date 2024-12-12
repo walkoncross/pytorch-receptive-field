@@ -14,8 +14,13 @@ from collections import OrderedDict
 
 def check_same(stride):
     if isinstance(stride, (list, tuple)):
-            assert (len(stride) == 2 and stride[0] == stride[1]) or (len(stride) == 3 and stride[0] == stride[1] and stride[1] == stride[2])
-            stride = stride[0]
+        assert (
+            len(stride) == 1 or
+            (len(stride) == 2 and stride[0] == stride[1]) or 
+            (len(stride) == 3 and stride[0] == stride[1] and stride[1] == stride[2])
+        )
+
+        stride = stride[0]
     return stride
 
 
@@ -32,10 +37,30 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
         Convention is to use half a pixel as the center for a range. center for `slice(0,5)` is 2.5.
     '''
     def register_hook(module):
-        pointwise_operations = ['ReLU', 'LeakyReLU',
-                                'ELU', 'Hardshrink', 'Hardsigmoid', 'Hardtanh', 'LogSigmoid', 'PReLU',
-                                'ReLU6', 'RReLU', 'SELU', 'CELU', 'GELU', 'Sigmoid', 'SiLU', 'Mish',
-                                'Softplus', 'Softshrink', 'Softsign', 'Tanh', 'Tanhshrink', 'Threshold', 'GLU']
+        pointwise_operations = [
+            # activations
+            'ReLU', 'LeakyReLU',
+            'ELU', 'Hardshrink', 'Hardsigmoid', 'Hardtanh', 'LogSigmoid', 'PReLU',
+            'ReLU6', 'RReLU', 'SELU', 'CELU', 'GELU', 'Sigmoid', 'SiLU', 'Mish',
+            'Softplus', 'Softshrink', 'Softsign', 'Tanh', 'Tanhshrink', 'Threshold', 'GLU',
+            
+            # normalization layers
+            'BatchNorm1d', 'BatchNorm2d', 'BatchNorm3d', 'GroupNorm', 
+            'InstanceNorm1d', 'InstanceNorm2d', 'InstanceNorm3d', 
+            'LayerNorm', 'LazyBatchNorm1d', 'LazyBatchNorm2d', 'LazyBatchNorm3d', 
+            'LazyInstanceNorm1d', 'LazyInstanceNorm2d', 'LazyInstanceNorm3d', 
+            'RMSNorm', 'SyncBatchNorm', # LocalResponseNorm have a receptive field > 1
+
+            # linear layers
+            'Indentity', 'Linear', 'Bilinear', 'LazyLinear',
+
+            # dropout layers
+            'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d', 'AlphaDropout', 'FeatureAlphaDropout',
+        ]
+        
+        conv_layers = ['Conv1d', 'Conv2d', 'Conv3d']
+        conv_transposed_layers = ['ConvTranspose1d', 'ConvTranspose2d', 'ConvTranspose3d']
+        pooling_layers = ['MaxPool1d', 'MaxPool2d', 'MaxPool3d', 'AvgPool1d', 'AvgPool2d', 'AvgPool3d']
 
         def hook(module, input, output):
             class_name = str(module.__class__).split(".")[-1].split("'")[0]
@@ -54,12 +79,12 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
                 p_r = receptive_field[p_key]["r"]
                 p_start = receptive_field[p_key]["start"]
                 
-                if class_name == "Conv2d" or class_name == "MaxPool2d" or class_name == "AvgPool2d" or class_name == "Conv3d" or class_name == "MaxPool3d":
+                if class_name in conv_layers or class_name in pooling_layers:
                     kernel_size = module.kernel_size
                     stride = module.stride
                     padding = module.padding
 
-                    if class_name == "AvgPool2d":
+                    if class_name == "AvgPool1d" or class_name == "AvgPool2d" or class_name == "AvgPool3d":
                         # Avg Pooling does not have dilation, set it to 1 (no dilation)
                         dilation = 1
                     else:
@@ -69,11 +94,11 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
                     receptive_field[m_key]["j"] = p_j * stride
                     receptive_field[m_key]["r"] = p_r + ((kernel_size - 1) * dilation) * p_j
                     receptive_field[m_key]["start"] = p_start + ((kernel_size - 1) / 2 - padding) * p_j
-                elif class_name in pointwise_operations or class_name == "BatchNorm2d" or class_name == "Bottleneck" or class_name == "BatchNorm3d":
+                elif class_name in pointwise_operations or class_name == "Bottleneck":
                     receptive_field[m_key]["j"] = p_j
                     receptive_field[m_key]["r"] = p_r
                     receptive_field[m_key]["start"] = p_start
-                elif class_name == "ConvTranspose2d" or class_name == "ConvTranspose3d":
+                elif class_name in conv_transposed_layers:
                     receptive_field["0"]["conv_stage"] = False
                     receptive_field[m_key]["j"] = 0
                     receptive_field[m_key]["r"] = 0
@@ -97,7 +122,7 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
             not isinstance(module, nn.Sequential)
             and not isinstance(module, nn.ModuleList)
             and not (module == model)
-            and not isinstance(module, nn.Linear)
+            # and not isinstance(module, nn.Linear)
         ):
             hooks.append(module.register_forward_hook(hook))
 
@@ -105,6 +130,7 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
     assert device in [
         "cuda",
         "cpu",
+        "mps"
     ], "Input device is not valid, please specify 'cuda' or 'cpu'"
 
     if device == "cuda" and torch.cuda.is_available():
@@ -146,7 +172,7 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
     for layer in receptive_field:
         # input_shape, output_shape, trainable, nb_params
         assert "start" in receptive_field[layer], layer
-        assert len(receptive_field[layer]["output_shape"]) == 4 or len(receptive_field[layer]["output_shape"]) == 5
+        assert len(receptive_field[layer]["output_shape"]) in (3, 4, 5)
         line_new = "{:7} {:12}  {:>10} {:>10} {:>10} {:>15} ".format(
             "",
             layer,
@@ -180,7 +206,11 @@ def receptive_field_for_unit(receptive_field_dict, layer, unit_position):
     input_shape = receptive_field_dict["input_size"]
     if layer in receptive_field_dict:
         rf_stats = receptive_field_dict[layer]
-        assert len(unit_position) == 2 or len(unit_position) == 3
+        if isinstance(unit_position, int):
+            unit_position = (unit_position,)
+        
+        assert isinstance(unit_position, (list, tuple)) and len(unit_position) in (1, 2, 3)
+
         feat_map_lim = rf_stats['output_shape'][2:]
         if np.any([unit_position[idx] < 0 or
                    unit_position[idx] >= feat_map_lim[idx]
@@ -192,7 +222,13 @@ def receptive_field_for_unit(receptive_field_dict, layer, unit_position):
         # X, Y = tuple(unit_position)
         rf_range = [(rf_stats['start'] + idx * rf_stats['j'] - rf_stats['r'] / 2,
             rf_stats['start'] + idx * rf_stats['j'] + rf_stats['r'] / 2) for idx in unit_position]
-        if len(unit_position) == 2:
+        if len(unit_position) == 1:
+            if len(input_shape) == 1:
+                limit = input_shape
+            else:  # input shape is (channel, L)
+                limit = input_shape[1:2]
+            rf_range = [(max(0, rf_range[axis][0]), min(limit[axis], rf_range[axis][1])) for axis in range(1)]
+        elif len(unit_position) == 2:
             if len(input_shape) == 2:
                 limit = input_shape
             else:  # input shape is (channel, H, W)
