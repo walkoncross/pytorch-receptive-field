@@ -126,23 +126,31 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
         ):
             hooks.append(module.register_forward_hook(hook))
 
-    device = device.lower()
-    assert device in [
-        "cuda",
-        "cpu",
-        "mps"
-    ], "Input device is not valid, please specify 'cuda' or 'cpu'"
+    # device = device.lower()
+    # assert device in [
+    #     "cuda",
+    #     "cpu",
+    #     "mps"
+    # ], "Input device is not valid, please specify 'cuda' or 'cpu'"
 
-    if device == "cuda" and torch.cuda.is_available():
-        dtype = torch.cuda.FloatTensor
-    else:
-        dtype = torch.FloatTensor
+    # if device == "cuda" and torch.cuda.is_available():
+    #     dtype = torch.cuda.FloatTensor
+    # else:
+    #     dtype = torch.FloatTensor
 
-    # check if there are multiple inputs to the network
-    if isinstance(input_size[0], (list, tuple)):
-        x = [Variable(torch.rand(2, *in_size)).type(dtype) for in_size in input_size]
-    else:
-        x = Variable(torch.rand(2, *input_size)).type(dtype)
+    # # check if there are multiple inputs to the network
+    # if isinstance(input_size[0], (list, tuple)):
+    #     x = [Variable(torch.rand(2, *in_size)).type(dtype) for in_size in input_size]
+    # else:
+    #     x = Variable(torch.rand(2, *input_size)).type(dtype)
+
+    x = torch.rand(2, *input_size, device=device)
+
+    current_device = next(model.parameters()).device.type
+    if current_device != device:
+        model.to(device)
+        
+    model.eval()
 
     # create properties
     receptive_field = OrderedDict()
@@ -159,7 +167,8 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
     model.apply(register_hook)
 
     # make a forward pass
-    model(x)
+    with torch.no_grad():
+        model(x)
 
     # remove these hooks
     for h in hooks:

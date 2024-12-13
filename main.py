@@ -53,17 +53,24 @@ class Net3D(nn.Module):
         y = self.maxpool(y)
         return y
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # PyTorch v0.4.0
+device = "cpu"
+
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available():
+    device = "mps"
+
+print(f"--> Using device: {device}")
 
 model = Net1D().to(device)
-receptive_field_dict = receptive_field(model, (3, 256))
+receptive_field_dict = receptive_field(model, (3, 256), device=device)
 receptive_field_for_unit(receptive_field_dict, "2", (1,))
 
 model = Net2D().to(device)
-receptive_field_dict = receptive_field(model, (3, 256, 256))
+receptive_field_dict = receptive_field(model, (3, 256, 256), device=device)
 receptive_field_for_unit(receptive_field_dict, "2", (1,1))
 receptive_field_visualization_2d(receptive_field_dict, "./examples/example.jpg", "example_receptive_field_2d")
 
 model = Net3D().to(device)
-receptive_field_dict = receptive_field(model, (3, 16, 16, 16))
+receptive_field_dict = receptive_field(model, (3, 16, 16, 16), device=device)
 receptive_field_for_unit(receptive_field_dict, "2", (1,1,1))
