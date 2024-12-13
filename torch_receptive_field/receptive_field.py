@@ -144,7 +144,7 @@ def receptive_field(model, input_size, batch_size=-1, device="cuda"):
     # else:
     #     x = Variable(torch.rand(2, *input_size)).type(dtype)
 
-    x = torch.rand(2, *input_size, device=device)
+    x = torch.rand(1, *input_size, device=device)
 
     current_device = next(model.parameters()).device.type
     if current_device != device:
