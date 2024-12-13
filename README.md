@@ -126,6 +126,60 @@ Receptive field size for layer 2, unit_position (1, 1, 1),  is
  [(0, 3.0), (0, 3.0), (0, 3.0)]
 ```
 
+## Example 1D CNN
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_receptive_field import receptive_field
+
+class Net1D(nn.Module):
+    def __init__(self):
+        super(Net1D, self).__init__()
+        self.conv = nn.Conv1d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn = nn.BatchNorm1d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
+        self.avgpool = nn.AvgPool1d(kernel_size=3, stride=2, padding=1)
+
+    def forward(self, x):
+        y = self.conv(x)
+        y = self.bn(y)
+        y = self.relu(y)
+        y = self.maxpool(y)
+        y = self.avgpool(y)
+        return y
+
+device = "cpu"
+
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available():
+    device = "mps"
+
+print(f"--> Using device: {device}")
+
+model = Net1D().to(device)
+receptive_field_dict = receptive_field(model, (3, 256), device=device)
+receptive_field_for_unit(receptive_field_dict, "2", (1,))
+
+```
+```
+--> Using device: mps
+------------------------------------------------------------------------------
+        Layer (type)    map size      start       jump receptive_field 
+==============================================================================
+        0                  [256]        0.5        1.0             1.0 
+        1                  [128]        0.5        2.0             7.0 
+        2                  [128]        0.5        2.0             7.0 
+        3                  [128]        0.5        2.0             7.0 
+        4                   [64]        0.5        4.0            11.0 
+        5                   [32]        0.5        8.0            19.0 
+==============================================================================
+Receptive field size for layer 2, unit_position (1,),  is 
+ [(0, 6.0)]
+```
+
 ## Related
 Thanks @pytorch-summary
 
